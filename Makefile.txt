@@ -1,0 +1,26 @@
+PROJ = arm_blink
+BUILD = ./out
+DEVICE = 8k
+FOOTPRINT = tq144:4k
+
+SRC = top.v
+SRC += leds_wb.v
+SRC += operational_modes.v
+SRC += ../../components/gpmc-sync.v
+SRC += ../../components/gpmc_to_wishbone.v
+PIN_SRC = pinmap.pcf
+
+.PHONY: all load clean
+
+all:    
+        mkdir -p $(BUILD)
+        yosys -q -p "synth_ice40 -top top -blif $(BUILD)/$(PROJ).blif" $(SRC)
+        arachne-pnr -d $(DEVICE) -P $(FOOTPRINT) -p $(PIN_SRC) -o $(BUILD)/$(PROJ).asc $(BUILD)/$(PROJ).blif
+        icepack $(BUILD)/$(PROJ).asc $(BUILD)/$(PROJ).bin
+        echo -e "\x0\x0\x0\x0\x0\x0\x0" >> $(BUILD)/$(PROJ).bin
+
+load:
+        sh /home/debian/load-fw/bw-prog.sh $(BUILD)/$(PROJ).bin
+
+clean:
+        rm -rf ./$(BUILD)/

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+   ./../../bridge_lib/memmap -a 0 -w FFDE
+   sleep 2
+   ./../../bridge_lib/memmap -a 0 -w 0004
+   sleep 2
+   ./../../bridge_lib/memmap -a 0 -w 0010
+   sleep 2
+   ./../../bridge_lib/memmap -a 0 -w 8000

@@ -1,0 +1,172 @@
+//////////   UNCLASSIFIED    //////////
+
+
+/////////////////////////////////////////////////////////////
+//   Function of IP: read in six bytes and route to buses
+/////////////////////////////////////////////////////////////
+
+`default_nettype none
+
+module operational_modes #(
+        parameter DATA_WIDTH = 16
+)(
+    // Clock and Reset
+        input  wire clk,
+        input  wire reset,
+
+        // Leds
+        output wire [3:0] led,      //LEDs on BeagleWire
+
+        // data in
+        input wire [1:0] new_data_matrix_oper,
+        input wire [DATA_WIDTH-1:0] data_bus_oper,      // new data
+);
+
+
+
+reg [3:0] mem;
+
+reg sys_running = 1; // flag for system operation: 0 == off, 1 == running
+                // default is running
+
+// states of operation
+reg [7:0] operating_state = 0; // default is 0 (reset)
+
+// local storage for new data - MAY NOT BE NECESSARY BUT WILL BUFFER DATA
+reg [DATA_WIDTH-1:0] cmd_ctr_word_local;
+reg [DATA_WIDTH-1:0] start_delay_local;
+reg [DATA_WIDTH-1:0] stop_delay_local;
+
+// time scale multiplier:
+// "hard-wired" in code here
+// number of clock cycles before incrementing compare timer
+reg [DATA_WIDTH-1:0] delay_compare_coeff = 255;
+
+// local running timer for compares
+reg [DATA_WIDTH-1:0] local_timer_fast; // faster timer, runs at clk rate
+reg [DATA_WIDTH-1:0] local_timer_slow; // runs at bit shifted by delay_compare_coeff rate
+
+always @(posedge clk) begin
+
+        // if new data, clock in
+        if(new_data_matrix_oper == 0) begin
+                //mem[3:0] <= 1; // DEBUGGING
+                // no new data, do nothing 
+                // IN THE FUTURE, WE PROBABLY DON'T NEED THIS CHECK
+        end else if (new_data_matrix_oper == 1) begin
+                mem[3:0] <= 0;  // DEBUGGING
+                cmd_ctr_word_local <= data_bus_oper;
+                sys_running = 0;  // stop until new word is processed
+                                // flag is turned back on in cmd_ctr parsing check 
+        end else if (new_data_matrix_oper == 2) begin
+                //mem[3:0] <= 4; // DEBUGGING
+                start_delay_local <= data_bus_oper;
+                // don't have to stop operation when these values are updated
+        end else if (new_data_matrix_oper == 3) begin
+                //mem[3:0] <= 8;  // DEBUGGING
+                stop_delay_local <= data_bus_oper;
+                operating_state = 10; // new data state
+        end
+
+        // state machine of operational modes:      
+  // 0 = off (reset)
+        // 10 = new command and control word. Parse data
+        // 20 = mode 1 running
+        // 30 = mode 2 running
+        // 40 = mode 3 running
+        if(operating_state == 0) begin // reset state
+                //mem[3:0] = 15;
+
+                // do nothing
+        end else if (operating_state == 10) begin // new cmd/ctr word
+                mem[0] = 1; // DEBUGGING new data
+
+                // parse through new cmd and ctr word
+                if((cmd_ctr_word_local[1] == 1) && ( cmd_ctr_word_local[2] == 1)) begin // command is mode 1
+                        operating_state = 20; // update operating state 
+                end else if ((cmd_ctr_word_local[1] == 1) && cmd_ctr_word_local[2] == 0) begin // command is mode 2
+                        operating_state = 30;
+                end else if ((cmd_ctr_word_local[1] == 0) && (cmd_ctr_word_local[2] == 1)) begin // command is mode 3
+                        operating_state = 40;
+                end
+
+        end else if (operating_state == 20) begin // mode 1
+                //mem[3:0] = 2;  // DEBUGGING
+
+                // Port digital input to output (NO NEED TO BE FANCY)
+
+        end else if (operating_state == 30) begin // mode 2 initialize
+                mem[1] = 1;   // DEBUGGING
+
+                // REINITIALIZE LOCAL TIMER
+                local_timer_fast = 0;
+                // SET operating_state to 32 (running)
+                operating_state = 32;
+        end else if (operating_state == 32) begin
+                // not used yet - will be waiting for blanking pulse input
+                mem[3] = 1; //DEBUGGING turn on LED
+                operating_state = 34;
+        end else if (operating_state == 34) begin // mode 2 running     
+                // TIMER INCREMENTS
+                local_timer_fast = local_timer_fast + 1;
+                if(local_timer_fast == delay_compare_coeff) begin
+                        local_timer_slow = local_timer_slow + 1;
+                        local_timer_fast = 0;
+                end
+                // COMPARE TIMER AGAINST LOCAL START TIMER REGISTER
+                // FOR NOW, IF EQUAL, GO BACK TO INIT OF THIS STATE
+                if (local_timer_slow == start_delay_local) begin
+                      operating_state = 30;  // go back to init of this state
+                        local_timer_slow = 0;   // reset
+                        mem[3] = 0; // RESET MSb of LED array - DEBUGGING
+                end
+
+        end else if (operating_state == 40) begin // mode 3 initialize
+                mem[2] = 1;  // DEBUGGING
+
+                // REINITIALIZE LOCAL TIMER
+                local_timer_fast = 0;
+                // SET operating_state to 42
+                operating_state = 42;
+        end else if (operating_state == 42) begin
+                // not used yet, will be waiting for pulse input
+                operating_state = 44;
+        end else if (operating_state == 44) begin // mode 3 start compare
+                //mem[3:0] = 5; // DEBUGGING
+
+                // TIMER INCREMENTS
+                local_timer_fast = local_timer_fast + 1;
+                if(local_timer_fast == delay_compare_coeff) begin
+                        local_timer_slow = local_timer_slow + 1;
+                        local_timer_fast = 0; // reset
+                end
+                // COMPARE TIMER AGAINST LOCAL START TIMER REG
+                // IF COMPARE IS EQUAL, DO MOVE TO "stop compare" state
+                if (local_timer_slow == start_delay_local) begin
+                        operating_state = 46;
+                        mem[3] = 1;
+                end
+        end else if (operating_state == 46) begin
+
+
+                // DO SAME FOR STOP TIMER
+                // WHEN BOTH TRUE, RESET operating_mode to 40 (initialize)
+                local_timer_fast = local_timer_fast + 1;
+                if (local_timer_fast == delay_compare_coeff) begin
+                        local_timer_slow = local_timer_slow + 1;
+                        local_timer_fast = 0;
+                end
+
+                if (local_timer_slow == stop_delay_local) begin
+                        operating_state = 40;
+                        mem[3] = 0;  // debugging reset
+                end
+        end
+end
+
+assign led[3:0] = mem[3:0];
+
+endmodule
+
+
+////////   UNCLASSIFIED    ///////////

@@ -1,0 +1,102 @@
+//////////   UNCLASSIFIED    //////////
+
+
+/////////////////////////////////////////////////////////////
+//   Function of IP: read in six bytes and route to buses
+/////////////////////////////////////////////////////////////
+
+`default_nettype none
+
+module leds_wb #(
+        parameter ADDR_WIDTH = 1,   // Parameters for Address and Data
+        parameter DATA_WIDTH = 16
+)(
+    // Clock and Reset
+        input  wire clk,
+        input  wire reset,
+
+        // Leds
+        output wire [3:0] led,      //LEDs on BeagleWire
+
+        // Wishbone interface
+        input  wire [ADDR_WIDTH-1:0]  wbs_address,    //Wishbone Address Bus 
+        input  wire [DATA_WIDTH-1:0]  wbs_writedata,  //Wishbone read data
+        output wire [DATA_WIDTH-1:0]  wbs_readdata,   //Wishbone write data
+        input  wire wbs_strobe,     //Wishbone Strobe
+        input  wire wbs_write,     //Wishbone Write(High = Write)
+        input  wire wbs_cycle,     //Wishbone Bus Cycle in Progress 
+        output wire wbs_ack,        //Wishbone Acknowledge Signal from Slave
+
+        // data out
+        output wire [1:0] new_data_matrix,
+        output wire [DATA_WIDTH-1:0] data_bus,  // new data
+);
+
+
+
+reg [3:0] mem;
+reg [3:0] wbs_readdata_reg;
+
+reg [DATA_WIDTH-1:0] input_word;
+
+reg [3:0] word_counter = 0;
+
+reg new_word_flag = 0;
+reg [1:0] new_data_matrix_local  = 0;
+
+
+
+always @(posedge clk) begin
+        if((new_word_flag == 1)&&(~wbs_write)) begin
+                new_word_flag = 0; // reset
+                if(word_counter == 3) begin 
+                        word_counter = 0; // reset
+                        new_data_matrix_local = 0; // reset
+                end else if (word_counter != 3) begin
+                        word_counter = word_counter + 1;
+                end
+        end else if (~reset) begin
+                mem[3:0] <= 0;
+                wbs_readdata_reg  <= 0;
+        end else if (wbs_write && wbs_strobe &&  wbs_cycle) begin
+                input_word <= wbs_writedata;
+
+                if ((input_word == 65502)&&(word_counter == 0)) begin
+                        mem[3:0] <= 1;     // feedback - debugging
+                        new_word_flag = 1;
+                        new_data_matrix_local[1:0] = 0;
+                end
+                else if(word_counter == 1) begin
+                        mem[3:0] <= 2;
+                        new_word_flag = 1;
+                        new_data_matrix_local[1:0] = 1;
+
+                end
+                else if(word_counter == 2) begin
+                        mem[3:0] = 4;
+                        new_word_flag = 1;
+                        new_data_matrix_local[1:0] = 2;
+                end
+                else if(word_counter == 3) begin
+                        mem[3:0] = 8;
+                        new_word_flag = 1;
+                        new_data_matrix_local[1:0] = 3;
+                end
+
+
+        end else if (!wbs_write && wbs_strobe && wbs_cycle) begin
+                wbs_readdata_reg <= mem[3:0];
+        end
+end
+
+assign data_bus = input_word;
+assign new_data_matrix[1:0]  = new_data_matrix_local[1:0];
+
+assign wbs_readdata = wbs_readdata_reg;
+//assign led = mem[3:0];
+assign wbs_ack = wbs_cycle;
+
+endmodule
+
+
+////////   UNCLASSIFIED    ///////////
